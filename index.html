@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>PDF Viewer</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    padding: 0;
+    background-color: #f4f4f4;
+    color: #333;
+  }
+  #toolbar {
+    background-color: #333;
+    padding: 10px;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  #toolbar button {
+    background-color: #555;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    margin: 0 5px;
+    cursor: pointer;
+    border-radius: 5px;
+  }
+  #toolbar button:hover {
+    background-color: #777;
+  }
+  #pdfViewer {
+    border: 1px solid #ccc;
+    height: 80vh; /* 80% of viewport height */
+    width: 80%;
+    margin: 0 auto; /* Center the viewer */
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    position: relative; /* For absolute positioning of annotations */
+  }
+  .textAnnotation {
+      position: absolute;
+      background-color: rgba(255, 255, 0, 0.2); /* Light yellow background */
+      border: 1px dashed #ccc;
+      padding: 2px;
+      font-size: 16px; /* Adjust as needed */
+      resize: both; /* Allow resizing */
+      overflow: hidden;
+      min-width: 20px;
+      min-height: 20px;
+  }
+  .textAnnotation:focus {
+      border: 1px solid #007bff;
+      outline: none;
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<input type="file" id="pdfFile" accept=".pdf">
+<div id="toolbar">
+  <button id="addTextButton">Add Text</button>
+  <button id="savePdfButton">Save PDF</button>
+</div>
+<div id="pdfViewer"></div>
+
+<script>
+  const pdfFileElement = document.getElementById('pdfFile');
+  const pdfViewerElement = document.getElementById('pdfViewer');
+  const addTextButtonElement = document.getElementById('addTextButton');
+  const savePdfButtonElement = document.getElementById('savePdfButton');
+  let isAddTextMode = false;
+
+  // 1. CDN Library Check
+  if (!window.pdfjsLib || !window.html2canvas || !window.jspdf) {
+    alert("Error: A required library (PDF.js, html2canvas, or jsPDF) failed to load. Please check your internet connection or ad-blockers and try again.");
+    if (pdfFileElement) pdfFileElement.disabled = true;
+    if (addTextButtonElement) addTextButtonElement.disabled = true;
+    if (savePdfButtonElement) savePdfButtonElement.disabled = true;
+    // Potentially throw an error or return to stop further script execution if critical
+  }
+
+  // let annotations = []; // For storing annotation data later
+
+  // 3. Confirm pdfViewer cursor change (already correct as per previous review)
+  // addTextButtonElement listener correctly sets pdfViewerElement.style.cursor
+  addTextButtonElement.addEventListener('click', function() {
+    isAddTextMode = !isAddTextMode;
+    if (isAddTextMode) {
+      addTextButtonElement.style.backgroundColor = '#007bff'; // Active color
+      addTextButtonElement.textContent = 'Cancel Add Text';
+      pdfViewerElement.style.cursor = 'crosshair';
+    } else {
+      addTextButtonElement.style.backgroundColor = '#555'; // Default color
+      addTextButtonElement.textContent = 'Add Text';
+      pdfViewerElement.style.cursor = 'default';
+    }
+  });
+
+  pdfViewerElement.addEventListener('click', function(event) {
+    if (isAddTextMode && event.target.tagName === 'CANVAS') {
+      const rect = pdfViewerElement.getBoundingClientRect(); // Get viewer's position
+      const x = event.clientX - rect.left; // Click X relative to viewer
+      const y = event.clientY - rect.top;  // Click Y relative to viewer
+
+      // Adjust for scrolling within pdfViewer if it's scrollable
+      const xAdjusted = x + pdfViewerElement.scrollLeft;
+      const yAdjusted = y + pdfViewerElement.scrollTop;
+
+      const textAnnotation = document.createElement('textarea');
+      textAnnotation.className = 'textAnnotation';
+      textAnnotation.style.left = xAdjusted + 'px';
+      textAnnotation.style.top = yAdjusted + 'px';
+      // textAnnotation.style.width = '150px'; // Initial width
+      // textAnnotation.style.height = '50px'; // Initial height
+      
+      pdfViewerElement.appendChild(textAnnotation);
+      textAnnotation.focus();
+
+      // For now, just log. Later, add to annotations array.
+      // console.log('Added text annotation at:', xAdjusted, yAdjusted);
+      // annotations.push({ text: '', x: xAdjusted, y: yAdjusted, pageNum: getPageNumFromCanvas(event.target) });
+
+
+      // Reset mode after adding one text box
+      isAddTextMode = false;
+      addTextButtonElement.style.backgroundColor = '#555';
+      addTextButtonElement.textContent = 'Add Text';
+      pdfViewerElement.style.cursor = 'default';
+    }
+  });
+
+  // Helper function to determine page number from canvas (simplified)
+  // This would need to be more robust in a real application, perhaps by storing page info on canvas elements
+  // function getPageNumFromCanvas(canvasElement) {
+  //   const canvases = Array.from(pdfViewerElement.getElementsByTagName('canvas'));
+  //   return canvases.indexOf(canvasElement) + 1; 
+  // }
+
+  savePdfButtonElement.addEventListener('click', function() {
+    const textAnnotations = pdfViewerElement.querySelectorAll('.textAnnotation');
+    const originalStyles = [];
+    textAnnotations.forEach(ta => {
+        originalStyles.push({
+            element: ta,
+            border: ta.style.border,
+            backgroundColor: ta.style.backgroundColor
+        });
+        ta.style.border = 'none'; 
+        ta.style.backgroundColor = 'transparent';
+    });
+
+    // Function to restore original styles
+    const restoreOriginalStyles = () => {
+        originalStyles.forEach(styleInfo => {
+            styleInfo.element.style.border = styleInfo.border;
+            styleInfo.element.style.backgroundColor = styleInfo.backgroundColor;
+        });
+    };
+
+    html2canvas(pdfViewerElement, { 
+        scale: 2, 
+        useCORS: true,
+        logging: true 
+    }).then(canvas => {
+        try {
+            const imgData = canvas.toDataURL('image/png');
+            const { jsPDF } = window.jspdf;
+            
+            // Determine PDF orientation based on captured content aspect ratio
+            let orientation = 'p'; // portrait
+            if (canvas.width > canvas.height) {
+                orientation = 'l'; // landscape
+            }
+            const pdf = new jsPDF({
+                orientation: orientation,
+                unit: 'px', // Use pixels for easier calculations with canvas dimensions
+                format: [canvas.width, canvas.height] // Set PDF size to match canvas
+            });
+
+            pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+            pdf.save('edited-pdf.pdf');
+            alert('PDF saved successfully!');
+        } catch (e) {
+            console.error("Error generating PDF:", e);
+            alert('Error generating PDF. See console for details.');
+        } finally {
+            // It's better to restore styles here if jsPDF part fails
+            // but html2canvas succeeded. The main finally block below handles
+            // html2canvas failures.
+        }
+    }).catch(err => {
+        console.error("Error with html2canvas:", err);
+        alert('Error capturing content for PDF. See console for details.');
+    }).finally(() => {
+        // 2. Annotation Style Restoration - ensuring styles are reset in all cases
+        restoreOriginalStyles();
+    });
+  });
+
+  pdfFileElement.addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    if (file && file.type === 'application/pdf') {
+      const fileReader = new FileReader();
+      fileReader.onload = function() {
+        const typedarray = new Uint8Array(this.result);
+        pdfjsLib.getDocument({data: typedarray}).promise.then(function(pdf) {
+          console.log('PDF loaded');
+          pdfViewerElement.innerHTML = ''; // Clear previous PDF
+
+          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            pdf.getPage(pageNum).then(function(page) {
+              console.log('Page loaded: ' + pageNum);
+              
+              const scale = 1.5;
+              const viewport = page.getViewport({scale: scale});
+
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              
+              pdfViewerElement.appendChild(canvas);
+
+              const renderContext = {
+                canvasContext: context,
+                viewport: viewport
+              };
+              page.render(renderContext).promise.then(function() {
+                console.log('Page rendered: ' + pageNum);
+              }).catch(function(renderError) {
+                console.error('Error rendering page ' + pageNum + ':', renderError);
+              });
+            }).catch(function(pageError){
+              console.error('Error loading page ' + pageNum + ':', pageError);
+            });
+          }
+        }).catch(function(pdfError) {
+          console.error('Error loading PDF:', pdfError);
+          pdfViewerElement.innerHTML = '<p>Error loading PDF. Please ensure it is a valid PDF file.</p>';
+        });
+      };
+      fileReader.onerror = function(error) {
+          console.error('FileReader error:', error);
+          pdfViewerElement.innerHTML = '<p>Error reading file.</p>';
+      };
+      fileReader.readAsArrayBuffer(file);
+    } else {
+      pdfViewerElement.innerHTML = '<p>Please select a PDF file.</p>';
+      console.log('No file selected or not a PDF.');
+    }
+  });
+</script>
+</body>
+</html>
