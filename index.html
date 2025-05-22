@@ -72,6 +72,18 @@
   .comment-marker.annotation-selected { /* 1. CSS for selected comment marker */
     box-shadow: 0 0 5px 3px blue !important; /* Use !important to override existing shadow */
   }
+  #commentPopup { /* 1. CSS for Comment Text Display */
+    position: absolute; 
+    background-color: #f9f9f9;
+    border: 1px solid #ccc;
+    padding: 8px;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    display: none; 
+    z-index: 1001; 
+    max-width: 250px;
+    word-wrap: break-word;
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
 <script>
@@ -85,22 +97,26 @@
 <div id="toolbar">
   <button id="addTextButton">Add Text</button>
   <button id="addCommentButton">Add Comment</button>
-  <button id="deleteAnnotationButton">Delete Selected</button> <!-- 2. Add Delete button -->
+  <button id="deleteAnnotationButton">Delete Selected</button>
   <button id="savePdfButton">Save PDF</button>
 </div>
-<div id="pdfViewer"></div>
+<div id="pdfViewer"> <!-- 2. HTML for Comment Popup -->
+    <div id="commentPopup"></div>
+</div>
 
 <script>
   const pdfFileElement = document.getElementById('pdfFile');
   const pdfViewerElement = document.getElementById('pdfViewer');
   const addTextButtonElement = document.getElementById('addTextButton');
-  const PDF_JS_SCALE = 1.5; // Define the PDF.js render scale globally
+  const PDF_JS_SCALE = 1.5; 
   const addCommentButtonElement = document.getElementById('addCommentButton');
-  const deleteAnnotationButtonElement = document.getElementById('deleteAnnotationButton'); // Get delete button
+  const deleteAnnotationButtonElement = document.getElementById('deleteAnnotationButton'); 
   const savePdfButtonElement = document.getElementById('savePdfButton');
+  const commentPopupElement = document.getElementById('commentPopup'); // 4. Get reference to popup
+
   let isAddTextMode = false;
   let isAddCommentMode = false;
-  let selectedAnnotationId = null; // 1. Global variable for selected annotation
+  let selectedAnnotationId = null; 
 
   // CDN Library Check
   if (!window.pdfjsLib || !window.PDFLib) {
@@ -289,10 +305,12 @@
         draggedElement = e.target;
         currentDraggedAnnotationId = draggedElement.dataset.annotationId; // For drag
         isDragging = true;
-        const rect = draggedElement.getBoundingClientRect();
-        const viewerRectForDrag = pdfViewerElement.getBoundingClientRect();
-        offsetX = e.clientX - (rect.left - viewerRectForDrag.left + pdfViewerElement.scrollLeft);
-        offsetY = e.clientY - (rect.top - viewerRectForDrag.top + pdfViewerElement.scrollTop);
+        const textareaRect = draggedElement.getBoundingClientRect(); // Renamed rect to textareaRect for clarity
+        // Correct offsetX/Y: Mouse position relative to the dragged element's top-left corner
+        offsetX = e.clientX - textareaRect.left;
+        offsetY = e.clientY - textareaRect.top;
+        
+        // currentDraggedAnnotationId is already set before isDragging
       });
       // Consider adding a separate 'click' listener for selection if mousedown is too complex.
       // textAnnotationElement.addEventListener('click', function(e){ ... selection logic ... });
@@ -309,19 +327,60 @@
         const marker = document.createElement('div');
         const newCommentId = `comment_${Date.now()}`;
         marker.className = 'comment-marker';
-        marker.dataset.annotationId = newCommentId; // 3. Store ID on marker
+        marker.dataset.annotationId = newCommentId; 
         marker.style.left = (visualX - 7.5) + 'px'; 
         marker.style.top = (visualY - 7.5) + 'px';
         
-        // 3. Click listener for comment marker selection
+        // Click listener for comment marker selection (existing)
         marker.addEventListener('click', function(e) {
-          e.stopPropagation(); // Prevent pdfViewer click
+          e.stopPropagation(); 
           if (isAddTextMode || isAddCommentMode) return;
-
           clearSelectionVisuals();
           selectedAnnotationId = e.target.dataset.annotationId;
           setSelectionVisuals(e.target);
           console.log("Selected comment annotation:", selectedAnnotationId);
+        });
+
+        // 4. Implement Show/Hide Logic for Comment Text (Hover)
+        marker.addEventListener('mouseenter', function(e) {
+          const annotationId = e.target.dataset.annotationId;
+          const annotation = annotations.find(anno => anno.id === annotationId);
+          if (annotation && annotation.type === 'comment') {
+            commentPopupElement.textContent = annotation.text;
+            
+            const markerRect = e.target.getBoundingClientRect();
+            const viewerRect = pdfViewerElement.getBoundingClientRect();
+            
+            // Position popup to the right of the marker
+            let popupLeft = markerRect.left - viewerRect.left + markerRect.width + 5 + pdfViewerElement.scrollLeft;
+            let popupTop = markerRect.top - viewerRect.top + pdfViewerElement.scrollTop;
+
+            // Adjust if popup goes out of viewer bounds (simple adjustment)
+            // Get actual width of popup after content is set
+            commentPopupElement.style.display = 'block'; // Temporarily display to get width
+            const popupWidth = commentPopupElement.offsetWidth;
+            const popupHeight = commentPopupElement.offsetHeight;
+
+            if (popupLeft + popupWidth > pdfViewerElement.clientWidth + pdfViewerElement.scrollLeft) {
+                 popupLeft = markerRect.left - viewerRect.left - popupWidth - 5 + pdfViewerElement.scrollLeft; // Position to the left
+            }
+            if (popupTop + popupHeight > pdfViewerElement.clientHeight + pdfViewerElement.scrollTop) {
+                popupTop = pdfViewerElement.clientHeight + pdfViewerElement.scrollTop - popupHeight;
+            }
+            if (popupTop < pdfViewerElement.scrollTop) {
+                popupTop = pdfViewerElement.scrollTop;
+            }
+
+
+            commentPopupElement.style.left = popupLeft + 'px';
+            commentPopupElement.style.top = popupTop + 'px';
+            // Display is already set to 'block'
+          }
+        });
+
+        marker.addEventListener('mouseleave', function(e) {
+          commentPopupElement.style.display = 'none';
+          commentPopupElement.textContent = ''; 
         });
         
         pdfViewerElement.appendChild(marker);
@@ -351,45 +410,62 @@
     if (!isDragging || !draggedElement || (draggedElement.tagName !== 'TEXTAREA')) return; // Only drag textareas
     
     const viewerRect = pdfViewerElement.getBoundingClientRect();
-    let newVisualX = e.clientX - viewerRect.left - offsetX + pdfViewerElement.scrollLeft;
-    let newVisualY = e.clientY - viewerRect.top - offsetY + pdfViewerElement.scrollTop;
-    draggedElement.style.left = newVisualX + 'px';
-    draggedElement.style.top = newVisualY + 'px';
+    // Correct newLeft/newTop calculation
+    let newLeft = e.clientX - viewerRect.left - offsetX + pdfViewerElement.scrollLeft;
+    let newTop = e.clientY - viewerRect.top - offsetY + pdfViewerElement.scrollTop;
+
+    draggedElement.style.left = newLeft + 'px';
+    draggedElement.style.top = newTop + 'px';
   });
 
   document.addEventListener('mouseup', function(e) {
-    if (!isDragging || !draggedElement || (draggedElement.tagName !== 'TEXTAREA')) { // Only drag textareas
-        if(isDragging && !draggedElement) isDragging = false; // Reset if somehow only isDragging is true
+    if (!isDragging || !draggedElement || (draggedElement.tagName !== 'TEXTAREA')) { 
+        if(isDragging && !draggedElement) isDragging = false; 
         return;
     }
     
     const annotation = annotations.find(anno => anno.id === currentDraggedAnnotationId && anno.type === 'text');
     if (annotation) {
       const allCanvases = Array.from(pdfViewerElement.getElementsByTagName('canvas'));
-      const targetCanvas = allCanvases[annotation.pageNum - 1];
+      const targetCanvas = allCanvases[annotation.pageNum - 1]; // pageNum is 1-based
+
       if (targetCanvas) {
-        const canvasRect = targetCanvas.getBoundingClientRect();
-        const viewerRectForDrag = pdfViewerElement.getBoundingClientRect();
-        const canvasOffsetXInViewer = (canvasRect.left - viewerRectForDrag.left) + pdfViewerElement.scrollLeft;
-        const canvasOffsetYInViewer = (canvasRect.top - viewerRectForDrag.top) + pdfViewerElement.scrollTop;
-        // The style.left/top are visual, relative to scaled canvas.
-        // Convert them to be relative to unscaled canvas for storage.
-        const newUnscaledX = (parseFloat(draggedElement.style.left) - canvasOffsetXInViewer) / PDF_JS_SCALE;
-        const newUnscaledY = (parseFloat(draggedElement.style.top) - canvasOffsetYInViewer) / PDF_JS_SCALE;
+        const canvasRect = targetCanvas.getBoundingClientRect(); // Canvas position in viewport
+        const viewerRect = pdfViewerElement.getBoundingClientRect(); // Viewer position in viewport
+
+        // draggedElement.style.left/top are relative to pdfViewerElement's padding edge.
+        const visualX = parseFloat(draggedElement.style.left);
+        const visualY = parseFloat(draggedElement.style.top);
+
+        // Calculate the offset of the targetCanvas's top-left corner
+        // relative to the pdfViewerElement's padding edge, including viewer scroll.
+        const canvasOffsetXInViewerContent = (canvasRect.left - viewerRect.left) + pdfViewerElement.scrollLeft;
+        const canvasOffsetYInViewerContent = (canvasRect.top - viewerRect.top) + pdfViewerElement.scrollTop;
+
+        // Calculate the annotation's new top-left position relative to the targetCanvas (scaled view)
+        const scaledXonCanvas = visualX - canvasOffsetXInViewerContent;
+        const scaledYonCanvas = visualY - canvasOffsetYInViewerContent;
         
-        annotation.x = newUnscaledX;
-        annotation.y = newUnscaledY;
-        // Note: width/height for text annotations are not updated on drag, only position.
+        // Normalize these coordinates by dividing by PDF_JS_SCALE for storage
+        annotation.x = scaledXonCanvas / PDF_JS_SCALE;
+        annotation.y = scaledYonCanvas / PDF_JS_SCALE;
+        
+        // console.log(`Updated annotation ${annotation.id}: stored (x:${annotation.x}, y:${annotation.y}), visual (left:${visualX}, top:${visualY})`);
+      } else {
+        console.error("Target canvas not found for page: ", annotation.pageNum);
       }
+    } else {
+      console.error("Dragged annotation not found in array: ", currentDraggedAnnotationId);
     }
+
     isDragging = false;
     draggedElement = null;
-    currentDraggedAnnotationId = null; // This is for DRAG state, not selection
+    currentDraggedAnnotationId = null; 
     offsetX = 0;
     offsetY = 0;
   });
 
-  // 3. Deselecting on pdfViewer click
+  // Deselecting on pdfViewer click
   pdfViewerElement.addEventListener('click', function(event) {
     // If the click is directly on pdfViewer (not on a canvas, textarea, or marker which have their own click handlers)
     // or if it's on a canvas but not in an "add" mode.
